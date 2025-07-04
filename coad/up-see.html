@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>蓝天白云自适应界面</title>
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            min-height: 100vh;
+            min-width: 100vw;
+            width: 100vw;
+            height: 100vh;
+            box-sizing: border-box;
+            /* background: linear-gradient(to bottom, #87ceeb 0%, #ffffff 100%); */
+            position: relative;
+            overflow: hidden;
+        }
+        /* .cloud 样式和云元素已移除 */
+    </style>
+</head>
+<body>
+    <style>
+        .input-container {
+            position: absolute;
+            top: 75%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255,255,255,0.7);
+            padding: 24px 32px;
+            border-radius: 18px;
+            box-shadow: 0 4px 24px rgba(135,206,235,0.15);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            min-width: 260px;
+        }
+        .input-container input {
+            border: 1px solid #87ceeb;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 16px;
+            outline: none;
+            background: rgba(255,255,255,0.9);
+            transition: border 0.2s;
+        }
+        .input-container input:focus {
+            border: 1.5px solid #4682b4;
+        }
+        .input-container button {
+            background: #87ceeb;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 0;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .input-container button:hover {
+            background: #4682b4;
+        }
+    </style>
+    <div class="input-container">
+        <input type="number" id="water" placeholder="水表读数" min="0" step="any" />
+        <input type="number" id="electric" placeholder="电表读数" min="0" step="any" />
+        <button onclick="handleUpload()">上传</button>
+    </div>
+    <script>
+    const DATA_FILE = 'data.csv';
+
+    function getNowTimeStr() {
+        const now = new Date();
+        return now.getFullYear() + '-' +
+            String(now.getMonth()+1).padStart(2,'0') + '-' +
+            String(now.getDate()).padStart(2,'0') + ' ' +
+            String(now.getHours()).padStart(2,'0') + ':' +
+            String(now.getMinutes()).padStart(2,'0') + ':' +
+            String(now.getSeconds()).padStart(2,'0');
+    }
+
+    // 读取本地data.csv文件
+    async function readDataFile() {
+        if (!window.showOpenFilePicker) return [];
+        try {
+            const [fileHandle] = await window.showOpenFilePicker({
+                types: [{description: 'CSV', accept: {'text/csv': ['.csv']}}],
+                excludeAcceptAllOption: true,
+                multiple: false
+            });
+            const file = await fileHandle.getFile();
+            const text = await file.text();
+            return text.trim().split('\n').map(line => line.split(','));
+        } catch {
+            return [];
+        }
+    }
+
+    // 保存到本地data.csv文件
+    async function saveDataFile(content) {
+        if (!window.showSaveFilePicker) return;
+        try {
+            const handle = await window.showSaveFilePicker({
+                suggestedName: DATA_FILE,
+                types: [{description: 'CSV', accept: {'text/csv': ['.csv']}}]
+            });
+            const writable = await handle.createWritable();
+            await writable.write(content);
+            await writable.close();
+        } catch {}
+    }
+
+    function parseNumber(val) {
+        const n = parseFloat(val);
+        return isNaN(n) ? 0 : n;
+    }
+
+    async function handleUpload() {
+        const water = parseNumber(document.getElementById('water').value);
+        const electric = parseNumber(document.getElementById('electric').value);
+        if (water === 0 && electric === 0) {
+            alert('请输入水表和电表读数');
+            return;
+        }
+        const nowTime = getNowTimeStr();
+
+        let rows = [];
+        let header = [
+            '水表读数','电表读数','用水量','用电量','水费','电费','应交金额','上传时间'
+        ];
+        let prevWater = 0, prevElectric = 0;
+        let waterUsage = 0, electricUsage = 0;
+        let waterFee = 0, electricFee = 0, totalFee = 0;
+
+        // 读取已有数据
+        if (window.showOpenFilePicker && window.showSaveFilePicker) {
+            rows = await readDataFile();
+            if (rows.length > 0 && rows[0][0] !== '水表读数') {
+                // 没有头部，补头部
+                rows.unshift(header);
+            }
+            if (rows.length > 1) {
+                const last = rows[rows.length-1];
+                prevWater = parseNumber(last[0]);
+                prevElectric = parseNumber(last[1]);
+            }
+        }
+
+        waterUsage = water - prevWater;
+        electricUsage = electric - prevElectric;
+        waterFee = waterUsage * 5;
+        electricFee = electricUsage * 1;
+        totalFee = waterFee + electricFee;
+
+        const newRow = [
+            water, electric,
+            waterUsage, electricUsage,
+            waterFee, electricFee,
+            totalFee, nowTime
+        ];
+
+        // 保存数据
+        if (window.showOpenFilePicker && window.showSaveFilePicker) {
+            if (rows.length === 0) rows.push(header);
+            rows.push(newRow);
+            const csvContent = rows.map(r => r.join(',')).join('\n');
+            await saveDataFile(csvContent);
+        }
+
+        // 弹窗表格
+        let tableHtml = '<table border="1" style="border-collapse:collapse;width:100%;text-align:center;">';
+        tableHtml += '<tr>' + header.map(h => `<th>${h}</th>`).join('') + '</tr>';
+        tableHtml += '<tr>' + newRow.map(d => `<td>${d}</td>`).join('') + '</tr>';
+        tableHtml += '</table>';
+        const win = window.open('', '', 'width=700,height=300');
+        win.document.write('<title>本次上传数据</title>' + tableHtml);
+        win.document.close();
+        document.getElementById('water').value = '';
+        document.getElementById('electric').value = '';
+    }
+    </script>
+</body>
+</html>
